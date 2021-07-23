@@ -1,8 +1,10 @@
 import inspect
+import logging
 
 from biliup import engine
-from .common import logger
 from .engine.decorators import Plugin
+
+logger = logging.getLogger('biliup')
 
 
 def upload(platform, index, data):
@@ -14,7 +16,7 @@ def upload(platform, index, data):
     :return:
     """
     try:
-        cls = Plugin.upload_plugins.get(platform)
+        cls = Plugin.upload_plugins[platform]
         sig = inspect.signature(cls)
         context = {**engine.config, **engine.config['streamers'][index]}
         kwargs = {}

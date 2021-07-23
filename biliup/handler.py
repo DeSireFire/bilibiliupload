@@ -1,7 +1,9 @@
+import logging
+
+from . import plugins
 from . import common
-from biliup import event_manager
-from .common import logger
-from .engine.event import Event
+from .engine import config, invert_dict, Plugin
+from .engine.event import Event, EventManager
 from .downloader import download, check_url
 from .engine.upload import UploadBase
 from .uploader import upload
@@ -12,13 +14,38 @@ TO_MODIFY = 'to_modify'
 DOWNLOAD = 'download'
 BE_MODIFIED = 'be_modified'
 UPLOAD = 'upload'
+logger = logging.getLogger('biliup')
+
+
+def create_event_manager():
+    streamer_url = {k: v['url'] for k, v in config['streamers'].items()}
+    inverted_index = invert_dict(streamer_url)
+    urls = list(inverted_index.keys())
+    pool1_size = config.get('pool1_size') if config.get('pool1_size') else 3
+    pool2_size = config.get('pool2_size') if config.get('pool2_size') else 3
+    # 初始化事件管理器
+    app = EventManager(config, pool1_size=pool1_size, pool2_size=pool2_size)
+    app.context['urls'] = urls
+    app.context['url_status'] = dict.fromkeys(inverted_index, 0)
+    app.context['checker'] = Plugin(plugins).sorted_checker(urls)
+    app.context['inverted_index'] = inverted_index
+    app.context['streamer_url'] = streamer_url
+    return app
+
+
+event_manager = create_event_manager()
 
 
 @event_manager.register(DOWNLOAD, block=True)
 def process(name, url):
     date = common.time_now()
     try:
-        download(name, url)
+        kwargs = config['streamers'][name].copy()
+        kwargs.pop('url')
+        suffix = kwargs.get('format')
+        if suffix:
+            kwargs['suffix'] = suffix
+        download(name, url, **kwargs)
     finally:
         return Event(UPLOAD, (name, url, date))
 
@@ -46,7 +73,8 @@ class KernelFunc:
     @event_manager.register(CHECK, block=True)
     def singleton_check(self, platform):
         plugin = self.checker[platform]
-        for url in check_url(plugin):
+        wait = config.get('checker_sleep') if config.get('checker_sleep') else 15
+        for url in check_url(plugin, secs=wait):
             yield Event(TO_MODIFY, args=(url,))
 
     @event_manager.register(TO_MODIFY)

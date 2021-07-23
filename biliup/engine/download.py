@@ -7,18 +7,20 @@ import time
 from biliup import config
 from ..plugins import fake_headers
 
-logger = logging.getLogger('log01')
+logger = logging.getLogger('biliup')
 
 
 class DownloadBase:
-    def __init__(self, fname, url, suffix=None):
+    def __init__(self, fname, url, suffix=None, opt_args=None):
+        if opt_args is None:
+            opt_args = []
         self.fname = fname
         self.url = url
         self.suffix = suffix
         # ffmpeg.exe -i  http://vfile1.grtn.cn/2018/1542/0254/3368/154202543368.ssm/154202543368.m3u8
         # -c copy -bsf:a aac_adtstoasc -movflags +faststart output.mp4
         self.raw_stream_url = None
-        self.opt_args = []
+        self.opt_args = opt_args
 
         self.default_output_args = [
             '-bsf:a', 'aac_adtstoasc',
@@ -41,7 +43,7 @@ class DownloadBase:
                 '-i', self.raw_stream_url, *self.default_output_args, *self.opt_args,
                 '-c', 'copy', '-f', self.suffix]
         if config.get('segment_time'):
-            args += ['-f', 'segment', f'{self.fname}-%03d.{self.suffix}']
+            args += ['-f', 'segment', f'{self.fname} {time.strftime("%Y-%m-%d %H_%M_%S", time.localtime())} part-%03d.{self.suffix}']
         else:
             args += [f'{filename}.part']
 
@@ -68,11 +70,15 @@ class DownloadBase:
         try:
             logger.info('开始下载%s：%s' % (self.__class__.__name__, self.fname))
             while i < 30:
-                ret = self.run()
-                if ret is False:
-                    return
-                elif ret == 1:
-                    time.sleep(45)
+                try:
+                    ret = self.run()
+                    if ret is False:
+                        return
+                    elif ret == 1:
+                        time.sleep(45)
+                except:
+                    logger.exception("Uncaught exception:")
+                    continue
                 i += 1
         except:
             logger.exception("Uncaught exception:")
